@@ -19,6 +19,9 @@ export interface Attempt {
 export interface Settings {
   warmUpSeconds: number;
   sound: boolean;
+  /** 'adaptive' nudges difficulty from recent accuracy; 'fixed' holds fixedLevel. */
+  difficultyMode: 'adaptive' | 'fixed';
+  fixedLevel: Difficulty;
 }
 
 interface SkillRecord {
@@ -35,7 +38,12 @@ interface Persisted {
 }
 
 const KEY = 'ert:v1';
-const DEFAULT_SETTINGS: Settings = { warmUpSeconds: 420, sound: true };
+const DEFAULT_SETTINGS: Settings = {
+  warmUpSeconds: 420,
+  sound: false,
+  difficultyMode: 'adaptive',
+  fixedLevel: 2,
+};
 
 function emptyRecord(): SkillRecord {
   return { attempts: 0, correct: 0, totalTimeMs: 0, bestStreak: 0, currentStreak: 0 };

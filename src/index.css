@@ -1,1 +1,24 @@
 @import "tailwindcss";
+
+/* Subtle entrance for each new puzzle / screen. */
+@keyframes fadein {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fadein {
+  animation: fadein 220ms ease-out;
+}
+
+/* Respect users who prefer no motion. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fadein {
+    animation: none;
+  }
+}
