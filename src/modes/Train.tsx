@@ -3,9 +3,7 @@ import type { Skill, Difficulty } from '../types';
 import { getGenerator } from '../games';
 import { GamePlayer, type GameResult } from '../engine/GamePlayer';
 import { nextDifficulty } from '../engine/difficulty';
-import { StatsStore } from '../stats/StatsStore';
-
-const store = new StatsStore();
+import { statsStore as store } from '../stats/sharedStore';
 
 export function Train({ skill, onExit }: { skill: Skill; onExit: () => void }) {
   const generator = getGenerator(skill);

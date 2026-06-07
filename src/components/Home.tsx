@@ -26,7 +26,7 @@ export function Home({ onTrain, onWarmUp, onDashboard }: Props) {
         {GENERATORS.map((g) => (
           <button
             key={g.id}
-            onClick={() => onTrain(g.skill as Skill)}
+            onClick={() => onTrain(g.skill)}
             className="rounded-xl bg-slate-800 p-4 text-left text-white hover:bg-slate-700"
           >
             {g.name}

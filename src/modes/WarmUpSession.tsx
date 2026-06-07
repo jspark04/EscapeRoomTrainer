@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { Difficulty } from '../types';
 import { GENERATORS } from '../games';
 import { GamePlayer, type GameResult } from '../engine/GamePlayer';
-import { StatsStore } from '../stats/StatsStore';
+import { statsStore as store } from '../stats/sharedStore';
 
-const store = new StatsStore();
 const WARMUP_DIFFICULTY: Difficulty = 3;
 
 function pickGenerator() {

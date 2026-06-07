@@ -1,8 +1,5 @@
-import type { Skill } from '../types';
 import { GENERATORS } from '../games';
-import { StatsStore } from '../stats/StatsStore';
-
-const store = new StatsStore();
+import { statsStore as store } from '../stats/sharedStore';
 
 export function Dashboard({ onExit }: { onExit: () => void }) {
   return (
@@ -10,7 +7,7 @@ export function Dashboard({ onExit }: { onExit: () => void }) {
       <h2 className="mb-4 text-xl font-bold text-white">Your Progress</h2>
       <div className="grid gap-3">
         {GENERATORS.map((g) => {
-          const s = store.getSkillStats(g.skill as Skill);
+          const s = store.getSkillStats(g.skill);
           return (
             <div key={g.id} className="rounded-lg bg-slate-800 p-4">
               <h3 className="font-semibold text-white">{g.name}</h3>
