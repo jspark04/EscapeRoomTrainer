@@ -25,3 +25,6 @@ dist-ssr
 
 # Local Claude Code settings (machine-specific)
 .claude/settings.local.json
+
+# Visual brainstorming companion artifacts
+.superpowers/
