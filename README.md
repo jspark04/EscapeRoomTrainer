@@ -1,5 +1,7 @@
 # 🔓 Escape Room Brain Trainer
 
+[![CI](https://github.com/jspark04/EscapeRoomTrainer/actions/workflows/ci.yml/badge.svg)](https://github.com/jspark04/EscapeRoomTrainer/actions/workflows/ci.yml)
+
 A local-first web app that **builds and primes the cognitive skills you use to crack escape-room puzzles**. Practice eight puzzle types, run a timed pre-game warm-up, and — most importantly — learn the *techniques* so you recognize and solve puzzles faster next time.
 
 No account, no backend, no tracking. Everything runs in your browser and your progress is saved locally.
