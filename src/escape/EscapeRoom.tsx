@@ -1,5 +1,5 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { KeyboardControls } from '@react-three/drei';
+import { KeyboardControls, Stats } from '@react-three/drei';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerLockControls as PointerLockControlsImpl } from 'three-stdlib';
 import * as THREE from 'three';
@@ -135,7 +135,15 @@ const RoomScene = memo(function RoomScene({
 }: RoomSceneProps) {
   return (
     <KeyboardControls map={KEY_MAP}>
-      <Canvas shadows camera={{ position: layout.playerStart, fov: 70 }}>
+      <Canvas
+        shadows
+        // Cap the device-pixel-ratio: on HiDPI displays the default renders ~4x the pixels,
+        // which halves the framerate and shows up as judder on fast mouse-look.
+        dpr={[1, 1.5]}
+        gl={{ powerPreference: 'high-performance' }}
+        camera={{ position: layout.playerStart, fov: 70 }}
+      >
+        {import.meta.env.DEV && <Stats />}
         <Room />
         <Player boxes={furnitureBoxes} active={active} controlsRef={controlsRef} />
         <Desk position={layout.anchors.desk.pos} rotation={layout.anchors.desk.rotation} />
