@@ -3,6 +3,9 @@ interface Props {
   status: 'playing' | 'escaped' | 'failed';
   objective: string;
   elapsedMs: number;
+  /** Flavor text for the win/lose end screens (Claude narrative or canned fallback). */
+  winText?: string;
+  loseText?: string;
   onRetry: () => void;
   onExit: () => void;
 }
@@ -17,14 +20,18 @@ export function EscapeHUD({
   status,
   objective,
   elapsedMs,
+  winText,
+  loseText,
   onRetry,
   onExit,
 }: Props) {
   if (status !== 'playing') {
     const won = status === 'escaped';
+    const flavor = won ? winText : loseText;
     return (
-      <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/80 text-center text-amber-100">
+      <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/80 px-6 text-center text-amber-100">
         <h2 className="text-3xl font-black">{won ? '🔓 You escaped!' : "⏳ Time's up"}</h2>
+        {flavor && <p className="mt-3 max-w-md text-amber-200/90">{flavor}</p>}
         {won && <p className="mt-2">Escaped in {mmss(elapsedMs)}</p>}
         <div className="mt-6 flex gap-3">
           <button
