@@ -7,6 +7,7 @@ interface Props {
   onDashboard: () => void;
   onTechniques: () => void;
   onSettings: () => void;
+  onEscapeRoom: () => void;
 }
 
 const ICON: Record<Skill, string> = {
@@ -31,7 +32,7 @@ const ACCENT: Record<Skill, string> = {
   spatial: 'hover:border-cyan-500/60',
 };
 
-export function Home({ onTrain, onWarmUp, onDashboard, onTechniques, onSettings }: Props) {
+export function Home({ onTrain, onWarmUp, onDashboard, onTechniques, onSettings, onEscapeRoom }: Props) {
   return (
     <div className="animate-fadein mx-auto max-w-2xl p-6">
       <h1 className="text-3xl font-black text-white">🔓 Escape Room Brain Trainer</h1>
@@ -44,6 +45,16 @@ export function Home({ onTrain, onWarmUp, onDashboard, onTechniques, onSettings 
         ⏱️ Start Warm-Up
         <span className="block text-sm font-normal text-slate-800">
           A timed mixed primer across every skill — run it right before a real room
+        </span>
+      </button>
+
+      <button
+        onClick={onEscapeRoom}
+        className="mt-3 w-full rounded-xl bg-gradient-to-r from-stone-700 to-amber-900 p-5 text-left text-lg font-bold text-amber-100 transition hover:from-stone-600 hover:to-amber-800"
+      >
+        🕵️ Enter the Escape Room
+        <span className="block text-sm font-normal text-amber-200/80">
+          A first-person room to escape using everything you've trained
         </span>
       </button>
 
