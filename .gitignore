@@ -8,6 +8,8 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+# Explicit: the separate Claude proxy package keeps its own deps out of git.
+server/node_modules
 dist
 dist-ssr
 *.local

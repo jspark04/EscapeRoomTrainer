@@ -5,6 +5,14 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Dev-only: forward the client's /claude/* calls to the local Hono proxy
+  // (see server/). The proxy is optional — when it isn't running the client
+  // gracefully falls back to deterministic generation + canned content.
+  server: {
+    proxy: {
+      '/claude': 'http://localhost:8787',
+    },
+  },
   test: {
     environment: 'jsdom',
     globals: true,
