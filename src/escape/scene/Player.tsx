@@ -82,12 +82,19 @@ interface PlayerProps {
  * First-person rig: pointer-lock mouse-look + WASD walking clamped by physics.ts.
  * KeyboardControls is mounted by the parent (EscapeRoom) so it can wrap the whole UI;
  * this component only consumes the controls and owns the camera + pointer lock.
+ *
+ * PointerLockControls is mounted only while `active` (playing + no modal open). drei
+ * registers an unconditional document-level click handler that calls controls.lock() on
+ * every click; if it stayed mounted while a modal was up, clicking a dial arrow / keypad
+ * digit would re-lock the pointer and hijack the camera. Unmounting it runs drei's effect
+ * cleanup (which removes that handler); remounting on modal close re-arms click-to-lock.
+ * The camera object persists across remounts, so look direction is preserved.
  */
 export function Player({ boxes, active, controlsRef, onLock, onUnlock }: PlayerProps) {
   return (
     <>
       <Movement boxes={boxes} active={active} />
-      <PointerLockControls ref={controlsRef} onLock={onLock} onUnlock={onUnlock} />
+      {active && <PointerLockControls ref={controlsRef} onLock={onLock} onUnlock={onUnlock} />}
     </>
   );
 }

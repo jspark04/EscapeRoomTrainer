@@ -164,7 +164,9 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
     if (!session) return;
 
     if (id === 'door') {
-      if (!session.isUnlocked('door') && !safeSolved) return;
+      // The door is only engageable once the safe is cracked (it isn't a station, so the
+      // resolver has no unlock state for it — `safeSolved` is the sole gate).
+      if (!safeSolved) return;
       controlsRef.current?.unlock();
       setActiveModal({ kind: 'door', target: exitCode });
       return;
@@ -242,7 +244,7 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
     const id = targetId;
     if (!id) return null;
     if (id === 'door') {
-      if (session.isUnlocked('door') || safeSolved) return '[E] Enter the exit code';
+      if (safeSolved) return '[E] Enter the exit code';
       return 'The door is locked.';
     }
     const station = studyBlueprint.stations.find((s) => s.id === id);
