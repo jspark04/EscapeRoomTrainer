@@ -1,6 +1,6 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { KeyboardControls } from '@react-three/drei';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerLockControls as PointerLockControlsImpl } from 'three-stdlib';
 import * as THREE from 'three';
 
@@ -19,7 +19,8 @@ import { DoorKeypadPresenter } from './presenters/DoorKeypadPresenter';
 import type { Blueprint, Station } from './blueprint/types';
 import { createSession, type SessionStatus } from './session/RoomSession';
 import { pickTarget, type Interactable } from './scene/interaction';
-import { generateLayout } from './scene/layout';
+import type { AABB } from './scene/physics';
+import { generateLayout, type Layout } from './scene/layout';
 import { generateScenario, type StationId } from './blueprint/scenario';
 
 import { createHttpClient } from './claude/client';
@@ -97,6 +98,67 @@ function InteractionBridge({
   });
   return null;
 }
+
+interface RoomSceneProps {
+  layout: Layout;
+  furnitureBoxes: AABB[];
+  interactables: Interactable[];
+  active: boolean;
+  safeSolved: boolean;
+  escaped: boolean;
+  controlsRef: React.RefObject<PointerLockControlsImpl | null>;
+  sessionRef: React.RefObject<ReturnType<typeof createSession> | null>;
+  onTimerState: (remainingMs: number, status: SessionStatus) => void;
+  targetRef: React.RefObject<string | null>;
+  onTarget: (id: string | null) => void;
+}
+
+/**
+ * The 3D scene, isolated behind React.memo. All its props are stable refs/callbacks or
+ * shallow-comparable booleans/memoized objects, so the high-frequency overlay state
+ * (timer, crosshair target, hints, narrative) re-renders the parent's HUD WITHOUT
+ * reconciling the Canvas — which is what made fast mouse-look jitter (a re-render burst
+ * from the InteractionBridge competing with the 60fps render loop).
+ */
+const RoomScene = memo(function RoomScene({
+  layout,
+  furnitureBoxes,
+  interactables,
+  active,
+  safeSolved,
+  escaped,
+  controlsRef,
+  sessionRef,
+  onTimerState,
+  targetRef,
+  onTarget,
+}: RoomSceneProps) {
+  return (
+    <KeyboardControls map={KEY_MAP}>
+      <Canvas shadows camera={{ position: layout.playerStart, fov: 70 }}>
+        <Room />
+        <Player boxes={furnitureBoxes} active={active} controlsRef={controlsRef} />
+        <Desk position={layout.anchors.desk.pos} rotation={layout.anchors.desk.rotation} />
+        <Bookshelf
+          position={layout.anchors.bookshelf.pos}
+          rotation={layout.anchors.bookshelf.rotation}
+        />
+        <SafeAndPainting
+          position={layout.anchors.safe.pos}
+          rotation={layout.anchors.safe.rotation}
+          revealed={safeSolved}
+        />
+        <ExitDoor
+          position={layout.anchors.door.pos}
+          rotation={layout.anchors.door.rotation}
+          open={escaped}
+        />
+        <TimerBridge sessionRef={sessionRef} onState={onTimerState} />
+        <InteractionBridge targetRef={targetRef} onTarget={onTarget} interactables={interactables} />
+      </Canvas>
+    </KeyboardControls>
+  );
+});
 
 export function EscapeRoom({ onExit }: { onExit: () => void }) {
   const [seedNonce, setSeedNonce] = useState(0);
@@ -401,37 +463,19 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
 
   return (
     <div className="relative h-screen w-screen bg-black">
-      <KeyboardControls map={KEY_MAP}>
-        <Canvas shadows camera={{ position: layout.playerStart, fov: 70 }}>
-          <Room />
-          <Player
-            boxes={furnitureBoxes}
-            active={activeModal === null && status === 'playing'}
-            controlsRef={controlsRef}
-          />
-          <Desk position={layout.anchors.desk.pos} rotation={layout.anchors.desk.rotation} />
-          <Bookshelf
-            position={layout.anchors.bookshelf.pos}
-            rotation={layout.anchors.bookshelf.rotation}
-          />
-          <SafeAndPainting
-            position={layout.anchors.safe.pos}
-            rotation={layout.anchors.safe.rotation}
-            revealed={safeSolved}
-          />
-          <ExitDoor
-            position={layout.anchors.door.pos}
-            rotation={layout.anchors.door.rotation}
-            open={escaped}
-          />
-          <TimerBridge sessionRef={sessionRef} onState={handleTimerState} />
-          <InteractionBridge
-            targetRef={targetRef}
-            onTarget={setTargetId}
-            interactables={interactables}
-          />
-        </Canvas>
-      </KeyboardControls>
+      <RoomScene
+        layout={layout}
+        furnitureBoxes={furnitureBoxes}
+        interactables={interactables}
+        active={activeModal === null && status === 'playing'}
+        safeSolved={safeSolved}
+        escaped={escaped}
+        controlsRef={controlsRef}
+        sessionRef={sessionRef}
+        onTimerState={handleTimerState}
+        targetRef={targetRef}
+        onTarget={setTargetId}
+      />
 
       <Crosshair prompt={prompt} />
 
