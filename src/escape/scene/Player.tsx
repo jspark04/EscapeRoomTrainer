@@ -74,8 +74,6 @@ interface PlayerProps {
   /** When false, WASD movement is frozen (a presenter modal is open). */
   active: boolean;
   controlsRef: React.RefObject<PointerLockControlsImpl | null>;
-  onLock: () => void;
-  onUnlock: () => void;
 }
 
 /**
@@ -90,11 +88,15 @@ interface PlayerProps {
  * cleanup (which removes that handler); remounting on modal close re-arms click-to-lock.
  * The camera object persists across remounts, so look direction is preserved.
  */
-export function Player({ boxes, active, controlsRef, onLock, onUnlock }: PlayerProps) {
+export function Player({ boxes, active, controlsRef }: PlayerProps) {
   return (
     <>
       <Movement boxes={boxes} active={active} />
-      {active && <PointerLockControls ref={controlsRef} onLock={onLock} onUnlock={onUnlock} />}
+      {/* No onLock/onUnlock: passing fresh callbacks each render makes drei tear down and
+          re-attach its pointer-lock listeners every re-render (which fire on every mouse-look
+          target change), causing the jumpy view. With stable props the controls are set up
+          once and left alone. */}
+      {active && <PointerLockControls ref={controlsRef} />}
     </>
   );
 }

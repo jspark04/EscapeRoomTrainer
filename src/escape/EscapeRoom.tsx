@@ -16,18 +16,16 @@ import { OverlayPresenter } from './presenters/OverlayPresenter';
 import { DialLockPresenter } from './presenters/DialLockPresenter';
 import { DoorKeypadPresenter } from './presenters/DoorKeypadPresenter';
 
-import type { Station } from './blueprint/types';
+import type { Blueprint, Station } from './blueprint/types';
 import { createSession, type SessionStatus } from './session/RoomSession';
 import { pickTarget, type Interactable } from './scene/interaction';
 import { generateLayout } from './scene/layout';
+import { generateScenario, type StationId } from './blueprint/scenario';
 
 import { createHttpClient } from './claude/client';
-import { buildRoom, type BuiltRoom } from './claude/roomBuilder';
-import { cannedNarrative, cannedHint } from './claude/fallbacks';
+import { cannedHint } from './claude/fallbacks';
 import type { HintTier, NarrativeResponse } from './claude/types';
 
-import { getGenerator } from '../games';
-import { mulberry32 } from '../rng';
 import { statsStore } from '../stats/sharedStore';
 import type { Puzzle } from '../types';
 
@@ -115,68 +113,74 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
     [layout],
   );
 
-  // The room is built asynchronously: buildRoom() asks Claude (if a proxy is reachable),
-  // validates + judges the result, and ALWAYS resolves — falling back to the deterministic
-  // generator otherwise. Keyed on seedNonce so retry rebuilds a fresh chain. A cancel guard
-  // prevents a stale build (from a superseded nonce) from clobbering the current room.
-  const [built, setBuilt] = useState<BuiltRoom | null>(null);
-  const [narrative, setNarrative] = useState<NarrativeResponse>(() => cannedNarrative(THEME));
-  useEffect(() => {
-    let cancelled = false;
-    setBuilt(null);
-    buildRoom(SEED_BASE + seedNonce, claude).then((r) => {
-      if (!cancelled) setBuilt(r);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [seedNonce]);
+  // The room is now built SYNCHRONOUSLY from a hand-crafted, deterministic, value-chained
+  // scenario ("The Vanished Detective"). Keyed on seedNonce so retry yields a fresh chain.
+  // Claude stays an optional narrative/hint enhancer — it never gates play.
+  const scenario = useMemo(() => generateScenario(SEED_BASE + seedNonce), [seedNonce]);
 
-  // Narrative is fetched once per build: Claude if available, else the canned fallback. It is
-  // independent of the build outcome (flavor text only) and never blocks play.
+  // Build the session's Blueprint FROM the scenario, purely to feed the unchanged
+  // createSession/resolver gating (desk -> bookshelf -> safe -> door). The resolver only needs
+  // ids/consumes/produces to gate unlocks + detect completion; the actual puzzles/answers come
+  // from the scenario's embedded Puzzles.
+  const blueprint = useMemo<Blueprint>(
+    () => ({
+      theme: 'detective-study',
+      seed: scenario.seed,
+      stations: (['desk', 'bookshelf', 'safe'] as const).map((id, i, arr) => ({
+        id,
+        skill: scenario.stations[id].puzzle.skill,
+        difficulty: 2,
+        anchor: id,
+        presenter: scenario.stations[id].presenter,
+        produces: [id === 'safe' ? 'exitCode' : `clue_${id}`],
+        consumes: i === 0 ? [] : [`clue_${arr[i - 1]}`],
+        narrativeKey: id,
+      })),
+      finalLock: { anchor: 'door', consumes: ['exitCode'] },
+    }),
+    [scenario],
+  );
+
+  // Puzzles come straight from the scenario's stations (carry the chained values + checkAnswer).
+  const puzzleFor = useCallback(
+    (id: string): Puzzle | null =>
+      (id === 'desk' || id === 'bookshelf' || id === 'safe')
+        ? scenario.stations[id as StationId].puzzle
+        : null,
+    [scenario],
+  );
+
+  // The exit code is revealed inside the safe and consumed by the door. The safe dial target is
+  // the assembled vault code (= scenario.stations.safe.puzzle.solution).
+  const exitCode = scenario.exitCode;
+
+  // Narrative initializes from the scenario (great offline), still overridable by Claude.
+  const [narrative, setNarrative] = useState<NarrativeResponse>(() => ({
+    intro: scenario.intro,
+    win: scenario.win,
+    lose: scenario.lose,
+  }));
+  // Reset to the current scenario's text on retry; then enhance via Claude if reachable.
   useEffect(() => {
     let cancelled = false;
-    setNarrative(cannedNarrative(THEME));
+    setNarrative({ intro: scenario.intro, win: scenario.win, lose: scenario.lose });
     claude.narrate(THEME).then((n) => {
       if (!cancelled && n) setNarrative(n);
     });
     return () => {
       cancelled = true;
     };
-  }, [seedNonce]);
-
-  // From here down, all hooks run every render regardless of build state (stable hook order).
-  // Downstream memos tolerate a null blueprint by yielding empty/placeholder values; the
-  // returned JSX gates on `built` and shows a splash until the room is ready.
-  const blueprint = built?.blueprint ?? null;
-
-  // Per-session puzzles, generated once (memoized) per build. Each station gets a deterministic
-  // seed derived from the blueprint seed + its index, bumped by the nonce. Empty until built.
-  const puzzles = useMemo(() => {
-    const map = new Map<string, Puzzle>();
-    if (!blueprint) return map;
-    blueprint.stations.forEach((station, index) => {
-      const rng = mulberry32(SEED_BASE + index + seedNonce * 100);
-      map.set(station.id, getGenerator(station.skill).generate(station.difficulty, rng));
-    });
-    return map;
-  }, [blueprint, seedNonce]);
-
-  // The exit code is the safe (combination) station's solution (empty until built).
-  const safeStation = blueprint?.stations.find((s) => s.skill === 'combination') ?? null;
-  const exitCode = (safeStation && puzzles.get(safeStation.id)?.solution) ?? '';
+  }, [scenario]);
 
   // The session is the source of truth for chain state + timer. It is rebuilt whenever the
   // blueprint changes (i.e., on retry). We keep a synced ref so the render-loop bridges can
-  // tick it without re-subscribing each frame. Null until the room is built.
+  // tick it without re-subscribing each frame.
   const session = useMemo(
     () =>
-      blueprint
-        ? createSession(blueprint, statsStore.getSettings().warmUpSeconds * 1000, {
-            recordSolved: (e) =>
-              statsStore.recordAttempt({ skill: e.skill, correct: true, timeMs: 0, difficulty: 3 }),
-          })
-        : null,
+      createSession(blueprint, statsStore.getSettings().warmUpSeconds * 1000, {
+        recordSolved: (e) =>
+          statsStore.recordAttempt({ skill: e.skill, correct: true, timeMs: 0, difficulty: 3 }),
+      }),
     [blueprint],
   );
   const sessionRef = useRef(session);
@@ -195,6 +199,8 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
   const [safeSolved, setSafeSolved] = useState(false);
   const [escaped, setEscaped] = useState(false);
   const [showIntro, setShowIntro] = useState(true);
+  // On-solve story beat — a brief toast revealing the value(s) the player just carried forward.
+  const [discovery, setDiscovery] = useState<string | null>(null);
 
   // Adaptive hint state for the active puzzle modal. The tier escalates 1->2->3 on repeated
   // presses; `hintText` shows the latest hint (Claude if reachable, else canned).
@@ -206,6 +212,13 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
   const elapsedMs = session?.getState().elapsedMs ?? 0;
 
   const closeModal = useCallback(() => setActiveModal(null), []);
+
+  // Stable so the TimerBridge prop identity never changes — re-renders must not churn the
+  // Canvas subtree's effects (which is what made mouse-look jumpy).
+  const handleTimerState = useCallback((rem: number, st: SessionStatus) => {
+    setRemainingMs(rem);
+    setStatus((prev) => (prev === 'escaped' ? prev : st));
+  }, []);
 
   const engage = useCallback(() => {
     if (activeModal || status !== 'playing') return;
@@ -223,21 +236,26 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
       return;
     }
 
-    const station = blueprint?.stations.find((s) => s.id === id);
+    const station = blueprint.stations.find((s) => s.id === id);
     if (!station) return;
     if (!session.isUnlocked(id) || session.isSolvedStation(id)) return;
+    const puzzle = puzzleFor(id);
+    if (!puzzle) return;
 
     controlsRef.current?.unlock();
-    // Reset adaptive-hint state each time a puzzle is opened.
+    // Opening a puzzle dismisses the intro (so the post-solve beat toast isn't suppressed by it),
+    // clears any lingering beat toast, and resets adaptive-hint state.
+    setShowIntro(false);
+    setDiscovery(null);
     setHintTier(1);
     setHintText(null);
     if (station.presenter === 'diegetic') {
-      const puzzle = puzzles.get(station.id)!;
+      // The safe dial target is the assembled vault code (puzzle.solution = scenario.vaultCode).
       setActiveModal({ kind: 'dial', station, target: puzzle.solution });
     } else {
-      setActiveModal({ kind: 'overlay', station, puzzle: puzzles.get(station.id)! });
+      setActiveModal({ kind: 'overlay', station, puzzle });
     }
-  }, [activeModal, status, safeSolved, exitCode, puzzles, blueprint]);
+  }, [activeModal, status, safeSolved, exitCode, puzzleFor, blueprint]);
 
   // Global "E" to engage; or a click while the pointer is locked and aimed at a target.
   useEffect(() => {
@@ -265,8 +283,11 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
       setSolvedIds((prev) => new Set(prev).add(station.id));
       if (station.skill === 'combination') setSafeSolved(true);
       setActiveModal(null);
+      // Surface the story beat for this station — reveals the value(s) just carried forward.
+      const beat = scenario.beats[station.id as StationId];
+      if (beat) setDiscovery(beat);
     },
-    [],
+    [scenario],
   );
 
   const handleFinal = useCallback(
@@ -285,13 +306,14 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
     [exitCode],
   );
 
-  // Build the live objective + interaction prompt.
+  // Build the live, story-driven objective from the scenario beats + solved set.
   const objective = useMemo(() => {
-    if (safeSolved) return `Exit code found: ${exitCode}. Find the door.`;
-    if (solvedIds.has('bookshelf')) return 'Crack the safe behind the painting.';
-    if (solvedIds.has('desk')) return 'Search the bookshelf for the next clue.';
-    return 'Inspect the desk to begin.';
-  }, [safeSolved, solvedIds, exitCode]);
+    if (escaped) return 'You made it out.';
+    if (safeSolved) return `Exit code ${scenario.exitCode} — find the door.`;
+    if (solvedIds.has('bookshelf')) return `Set the vault: ${scenario.half1} then ${scenario.half2}.`;
+    if (solvedIds.has('desk')) return scenario.beats.desk; // names the keyword + reveals half2
+    return scenario.initialObjective;
+  }, [escaped, safeSolved, solvedIds, scenario]);
 
   const prompt = useMemo(() => {
     if (activeModal || status !== 'playing') return null;
@@ -299,23 +321,19 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
     if (!id) return null;
     if (id === 'door') {
       if (safeSolved) return '[E] Enter the exit code';
-      return 'The door is locked.';
+      return "The door won't budge without the exit code.";
     }
-    const station = blueprint?.stations.find((s) => s.id === id);
-    if (!station || !session) return null;
+    if (id !== 'desk' && id !== 'bookshelf' && id !== 'safe') return null;
+    const sceneStation = scenario.stations[id as StationId];
+    if (!session) return null;
     if (session.isSolvedStation(id)) return 'Already solved.';
-    if (!session.isUnlocked(id)) return 'Locked — solve the earlier clue first.';
-    // Skill-neutral labels: the desk/bookshelf skill now varies per playthrough, so the
-    // prompt must not assume a specific puzzle type (e.g. "Read the cipher").
-    const labels: Record<string, string> = {
-      desk: '[E] Inspect the desk',
-      bookshelf: '[E] Examine the books',
-      safe: '[E] Work the safe dial',
-    };
-    return labels[id] ?? '[E] Inspect';
-    // session is a ref; targetId/solvedIds/safeSolved/blueprint drive the recompute
+    // Locked stations show the scenario's diegetic locked-hint (story nudge toward the prereq).
+    if (!session.isUnlocked(id)) return sceneStation.lockedHint || 'Solve the earlier clue first.';
+    // Unlocked: the scenario's interaction label (story-flavored, e.g. "[E] Read Mara's note").
+    return sceneStation.label;
+    // session is a ref; targetId/solvedIds/safeSolved/scenario drive the recompute
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetId, activeModal, status, safeSolved, solvedIds, blueprint]);
+  }, [targetId, activeModal, status, safeSolved, solvedIds, scenario]);
 
   // Adaptive hint for the active puzzle modal: ask Claude (if reachable) for a tier-appropriate
   // hint, falling back to the canned, escalating, non-spoiling hint. Tier climbs 1->2->3 on
@@ -346,6 +364,14 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
     [hintTier],
   );
 
+  // Auto-fade the on-solve beat toast after a few seconds (it can also be dismissed manually,
+  // is cleared when the next puzzle opens, and is reset on retry).
+  useEffect(() => {
+    if (!discovery) return;
+    const t = setTimeout(() => setDiscovery(null), 8000);
+    return () => clearTimeout(t);
+  }, [discovery]);
+
   const onRetry = useCallback(() => {
     setSolvedIds(new Set());
     setSafeSolved(false);
@@ -353,37 +379,23 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
     setStatus('playing');
     setActiveModal(null);
     setShowIntro(true);
+    setDiscovery(null);
     setHintTier(1);
     setHintText(null);
     targetRef.current = null;
     setTargetId(null);
     setRemainingMs(statsStore.getSettings().warmUpSeconds * 1000);
-    // Bumping the nonce recreates blueprint -> session -> puzzles (fresh chain + timer).
+    // Bumping the nonce recreates scenario -> blueprint -> session (fresh chain + timer).
     setSeedNonce((n) => n + 1);
   }, []);
 
-  // All hooks have run above this point — hook order stays stable across renders. Only the
-  // RENDERED OUTPUT is gated: until the async build resolves, show a lightweight splash
-  // instead of the Canvas. In dev/CI (no proxy) this resolves on the next tick via fallback.
-  if (!built) {
-    return (
-      <div className="relative flex h-screen w-screen flex-col items-center justify-center bg-black text-amber-100">
-        <p className="animate-pulse text-lg">Entering the room…</p>
-        <button
-          onClick={onExit}
-          className="absolute bottom-4 left-4 z-10 rounded bg-slate-800/80 px-3 py-1 text-sm text-white"
-        >
-          ← Exit
-        </button>
-      </div>
-    );
-  }
-
+  // All hooks have run above this point — hook order stays stable across renders. The room is
+  // built synchronously from the scenario, so there is a single return (no async splash gate).
   const activePuzzle =
     activeModal?.kind === 'overlay'
       ? activeModal.puzzle
       : activeModal?.kind === 'dial'
-        ? puzzles.get(activeModal.station.id) ?? null
+        ? puzzleFor(activeModal.station.id)
         : null;
   const activeSkill = activeModal?.kind !== 'door' ? activeModal?.station.skill ?? null : null;
 
@@ -396,8 +408,6 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
             boxes={furnitureBoxes}
             active={activeModal === null && status === 'playing'}
             controlsRef={controlsRef}
-            onLock={() => {}}
-            onUnlock={() => {}}
           />
           <Desk position={layout.anchors.desk.pos} rotation={layout.anchors.desk.rotation} />
           <Bookshelf
@@ -414,13 +424,7 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
             rotation={layout.anchors.door.rotation}
             open={escaped}
           />
-          <TimerBridge
-            sessionRef={sessionRef}
-            onState={(rem, st) => {
-              setRemainingMs(rem);
-              setStatus((prev) => (prev === 'escaped' ? prev : st));
-            }}
-          />
+          <TimerBridge sessionRef={sessionRef} onState={handleTimerState} />
           <InteractionBridge
             targetRef={targetRef}
             onTarget={setTargetId}
@@ -452,6 +456,21 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
               className="mt-3 rounded bg-amber-500 px-4 py-1 text-sm font-semibold text-stone-900 transition hover:bg-amber-400"
             >
               Begin
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* On-solve story beat — a brief, dismissable toast revealing the carried value(s). */}
+      {discovery && status === 'playing' && !activeModal && !showIntro && (
+        <div className="absolute inset-x-0 top-20 z-20 mx-auto max-w-md px-4">
+          <div className="rounded-xl bg-amber-950/85 p-4 text-center text-amber-100 shadow-lg">
+            <p className="text-sm leading-relaxed">{discovery}</p>
+            <button
+              onClick={() => setDiscovery(null)}
+              className="mt-3 rounded bg-amber-500 px-4 py-1 text-sm font-semibold text-stone-900 transition hover:bg-amber-400"
+            >
+              Got it
             </button>
           </div>
         </div>
