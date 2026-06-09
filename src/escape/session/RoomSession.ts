@@ -25,6 +25,7 @@ export interface Session {
   solve: (stationId: string, produced: Record<Token, string>) => void;
   submitFinal: (code: string) => boolean;
   isUnlocked: (stationId: string) => boolean;
+  isSolvedStation: (stationId: string) => boolean;
 }
 
 export function createSession(bp: Blueprint, durationMs: number, hooks: Hooks = {}): Session {
@@ -43,6 +44,7 @@ export function createSession(bp: Blueprint, durationMs: number, hooks: Hooks = 
       if (remainingMs === 0) status = 'failed';
     },
     isUnlocked: (id) => resolver.isUnlocked(id),
+    isSolvedStation: (id) => resolver.isSolved(id),
     solve(id, produced) {
       if (status !== 'playing') return;
       const station = byId.get(id);
