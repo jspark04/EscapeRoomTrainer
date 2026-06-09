@@ -64,8 +64,11 @@ function ledgerPuzzle(target: number, keyword: string, rng: () => number, seed: 
   return {
     id: `book-${seed}`,
     skill: 'math',
-    prompt: `Inside the ${keyword}, three figures are underlined:\n\n    ${a} + ${b} + ${c}\n\nMara wrote: "their sum is the entry." What is it?`,
-    data: { kind: 'ledger' },
+    // MathView renders `data.expression` as the large display and `prompt` as the label, so the
+    // sum must live in `expression` (keep the prompt to one narrative line — MathView doesn't
+    // honor newlines).
+    prompt: `Inside the ${keyword}, Mara underlined three figures. Their sum is the ledger entry.`,
+    data: { kind: 'ledger', expression: `${a} + ${b} + ${c}` },
     solution: String(target),
     hint: 'Just add the three underlined figures.',
     explanation: `${a} + ${b} + ${c} = ${target} — the ledger entry, and the first half of the vault code.`,

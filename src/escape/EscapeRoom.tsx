@@ -243,7 +243,9 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
     if (!puzzle) return;
 
     controlsRef.current?.unlock();
-    // Opening a puzzle dismisses any lingering beat toast and resets adaptive-hint state.
+    // Opening a puzzle dismisses the intro (so the post-solve beat toast isn't suppressed by it),
+    // clears any lingering beat toast, and resets adaptive-hint state.
+    setShowIntro(false);
     setDiscovery(null);
     setHintTier(1);
     setHintText(null);
