@@ -207,6 +207,13 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
 
   const closeModal = useCallback(() => setActiveModal(null), []);
 
+  // Stable so the TimerBridge prop identity never changes — re-renders must not churn the
+  // Canvas subtree's effects (which is what made mouse-look jumpy).
+  const handleTimerState = useCallback((rem: number, st: SessionStatus) => {
+    setRemainingMs(rem);
+    setStatus((prev) => (prev === 'escaped' ? prev : st));
+  }, []);
+
   const engage = useCallback(() => {
     if (activeModal || status !== 'playing') return;
     const id = targetRef.current;
@@ -396,8 +403,6 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
             boxes={furnitureBoxes}
             active={activeModal === null && status === 'playing'}
             controlsRef={controlsRef}
-            onLock={() => {}}
-            onUnlock={() => {}}
           />
           <Desk position={layout.anchors.desk.pos} rotation={layout.anchors.desk.rotation} />
           <Bookshelf
@@ -414,13 +419,7 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
             rotation={layout.anchors.door.rotation}
             open={escaped}
           />
-          <TimerBridge
-            sessionRef={sessionRef}
-            onState={(rem, st) => {
-              setRemainingMs(rem);
-              setStatus((prev) => (prev === 'escaped' ? prev : st));
-            }}
-          />
+          <TimerBridge sessionRef={sessionRef} onState={handleTimerState} />
           <InteractionBridge
             targetRef={targetRef}
             onTarget={setTargetId}
