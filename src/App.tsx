@@ -6,6 +6,7 @@ import { WarmUpSession } from './modes/WarmUpSession';
 import { Dashboard } from './components/Dashboard';
 import { Techniques } from './components/Techniques';
 import { Settings } from './components/Settings';
+import { EscapeRoom } from './escape/EscapeRoom';
 
 type Screen =
   | { name: 'home' }
@@ -13,7 +14,8 @@ type Screen =
   | { name: 'warmup' }
   | { name: 'dashboard' }
   | { name: 'techniques' }
-  | { name: 'settings' };
+  | { name: 'settings' }
+  | { name: 'escape3d' };
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: 'home' });
@@ -28,6 +30,7 @@ export default function App() {
           onDashboard={() => setScreen({ name: 'dashboard' })}
           onTechniques={() => setScreen({ name: 'techniques' })}
           onSettings={() => setScreen({ name: 'settings' })}
+          onEscapeRoom={() => setScreen({ name: 'escape3d' })}
         />
       )}
       {screen.name === 'train' && <Train skill={screen.skill} onExit={home} />}
@@ -35,6 +38,7 @@ export default function App() {
       {screen.name === 'dashboard' && <Dashboard onExit={home} />}
       {screen.name === 'techniques' && <Techniques onExit={home} />}
       {screen.name === 'settings' && <Settings onExit={home} />}
+      {screen.name === 'escape3d' && <EscapeRoom onExit={home} />}
     </main>
   );
 }
