@@ -16,7 +16,7 @@ import { OverlayPresenter } from './presenters/OverlayPresenter';
 import { DialLockPresenter } from './presenters/DialLockPresenter';
 import { DoorKeypadPresenter } from './presenters/DoorKeypadPresenter';
 
-import { studyBlueprint } from './blueprint/studyBlueprint';
+import { generateBlueprint } from './blueprint/generate';
 import type { Station } from './blueprint/types';
 import { createSession, type SessionStatus } from './session/RoomSession';
 import { pickTarget, type Interactable } from './scene/interaction';
@@ -34,7 +34,7 @@ const ANCHORS: Record<string, { pos: [number, number, number]; box: AABB }> = {
   door: { pos: [0, 0, -ROOM_HALF + 0.05], box: { minX: -0.75, maxX: 0.75, minZ: -5, maxZ: -4.85 } },
 };
 
-const SEED_BASE = studyBlueprint.seed * 1000;
+const SEED_BASE = 1000;
 const FURNITURE_BOXES = Object.values(ANCHORS).map((a) => a.box);
 // Interactables = each station's anchor xz + the door's anchor xz.
 const INTERACTABLES: Interactable[] = Object.entries(ANCHORS).map(([id, a]) => ({
@@ -108,33 +108,36 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
   const [seedNonce, setSeedNonce] = useState(0);
   const durationMs = statsStore.getSettings().warmUpSeconds * 1000;
 
-  // Per-session puzzles, generated once (memoized) per (seedNonce). Each station gets a
+  // The puzzle chain is procedurally generated per playthrough (memoized by the nonce);
+  // a fresh, validated blueprint drives the puzzles, session, and all station lookups.
+  const blueprint = useMemo(() => generateBlueprint(SEED_BASE + seedNonce), [seedNonce]);
+
+  // Per-session puzzles, generated once (memoized) per (blueprint). Each station gets a
   // deterministic seed derived from the blueprint seed + its index, bumped by the nonce.
   const puzzles = useMemo(() => {
     const map = new Map<string, Puzzle>();
-    studyBlueprint.stations.forEach((station, index) => {
+    blueprint.stations.forEach((station, index) => {
       const rng = mulberry32(SEED_BASE + index + seedNonce * 100);
       map.set(station.id, getGenerator(station.skill).generate(station.difficulty, rng));
     });
     return map;
-  }, [seedNonce]);
+  }, [blueprint, seedNonce]);
 
   // The exit code is the safe (combination) station's solution.
-  const safeStation = studyBlueprint.stations.find((s) => s.skill === 'combination')!;
+  const safeStation = blueprint.stations.find((s) => s.skill === 'combination')!;
   const exitCode = puzzles.get(safeStation.id)!.solution;
 
-  // The session is the source of truth for chain state + timer. It is created once (lazy)
-  // and rebuilt on retry. We keep a synced ref so the render-loop bridges can tick it
-  // without re-subscribing each frame.
-  const makeSession = useCallback(
+  // The session is the source of truth for chain state + timer. It is rebuilt whenever the
+  // blueprint changes (i.e., on retry). We keep a synced ref so the render-loop bridges can
+  // tick it without re-subscribing each frame.
+  const session = useMemo(
     () =>
-      createSession(studyBlueprint, statsStore.getSettings().warmUpSeconds * 1000, {
+      createSession(blueprint, statsStore.getSettings().warmUpSeconds * 1000, {
         recordSolved: (e) =>
           statsStore.recordAttempt({ skill: e.skill, correct: true, timeMs: 0, difficulty: 3 }),
       }),
-    [],
+    [blueprint],
   );
-  const [session, setSession] = useState(makeSession);
   const sessionRef = useRef(session);
   useEffect(() => {
     sessionRef.current = session;
@@ -172,7 +175,7 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
       return;
     }
 
-    const station = studyBlueprint.stations.find((s) => s.id === id);
+    const station = blueprint.stations.find((s) => s.id === id);
     if (!station) return;
     if (!session.isUnlocked(id) || session.isSolvedStation(id)) return;
 
@@ -183,7 +186,7 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
     } else {
       setActiveModal({ kind: 'overlay', station, puzzle: puzzles.get(station.id)! });
     }
-  }, [activeModal, status, safeSolved, exitCode, puzzles]);
+  }, [activeModal, status, safeSolved, exitCode, puzzles, blueprint]);
 
   // Global "E" to engage; or a click while the pointer is locked and aimed at a target.
   useEffect(() => {
@@ -247,19 +250,21 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
       if (safeSolved) return '[E] Enter the exit code';
       return 'The door is locked.';
     }
-    const station = studyBlueprint.stations.find((s) => s.id === id);
+    const station = blueprint.stations.find((s) => s.id === id);
     if (!station) return null;
     if (session.isSolvedStation(id)) return 'Already solved.';
     if (!session.isUnlocked(id)) return 'Locked — solve the earlier clue first.';
+    // Skill-neutral labels: the desk/bookshelf skill now varies per playthrough, so the
+    // prompt must not assume a specific puzzle type (e.g. "Read the cipher").
     const labels: Record<string, string> = {
-      desk: '[E] Read the cipher',
+      desk: '[E] Inspect the desk',
       bookshelf: '[E] Examine the books',
       safe: '[E] Work the safe dial',
     };
     return labels[id] ?? '[E] Inspect';
-    // session is a ref; targetId/solvedIds/safeSolved drive the recompute
+    // session is a ref; targetId/solvedIds/safeSolved/blueprint drive the recompute
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetId, activeModal, status, safeSolved, solvedIds]);
+  }, [targetId, activeModal, status, safeSolved, solvedIds, blueprint]);
 
   const onRetry = useCallback(() => {
     setSolvedIds(new Set());
@@ -269,10 +274,10 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
     setActiveModal(null);
     targetRef.current = null;
     setTargetId(null);
-    setSeedNonce((n) => n + 1); // fresh puzzle instances
-    setSession(makeSession()); // fresh timer + chain state
     setRemainingMs(statsStore.getSettings().warmUpSeconds * 1000);
-  }, [makeSession]);
+    // Bumping the nonce recreates blueprint -> session -> puzzles (fresh chain + timer).
+    setSeedNonce((n) => n + 1);
+  }, []);
 
   return (
     <div className="relative h-screen w-screen bg-black">
@@ -330,7 +335,9 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
           <DialLockPresenter
             target={activeModal.target}
             onSolved={() =>
-              handleSolve(activeModal.station, { safeDigitsB: activeModal.target })
+              handleSolve(activeModal.station, {
+                [activeModal.station.produces[0]]: activeModal.target,
+              })
             }
             onClose={closeModal}
           />
