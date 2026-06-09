@@ -3,6 +3,8 @@ import type { ThreeElements } from '@react-three/fiber';
 type Props = ThreeElements['group'] & {
   /** When true the door swings open (after a correct final code). */
   open?: boolean;
+  /** Orient the door flush on any wall (matches SafeAndPainting's rotation prop). */
+  rotation?: [number, number, number];
 };
 
 // The exit: a door set into the wall with a small keypad beside it. Engaging it opens the

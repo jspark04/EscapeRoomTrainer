@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerLockControls as PointerLockControlsImpl } from 'three-stdlib';
 import * as THREE from 'three';
 
-import { Room, ROOM_HALF } from './scene/Room';
+import { Room } from './scene/Room';
 import { Player, KEY_MAP } from './scene/Player';
 import { Crosshair } from './scene/Crosshair';
 import { Desk } from './scene/furniture/Desk';
@@ -19,7 +19,7 @@ import { DoorKeypadPresenter } from './presenters/DoorKeypadPresenter';
 import type { Station } from './blueprint/types';
 import { createSession, type SessionStatus } from './session/RoomSession';
 import { pickTarget, type Interactable } from './scene/interaction';
-import type { AABB } from './scene/physics';
+import { generateLayout } from './scene/layout';
 
 import { createHttpClient } from './claude/client';
 import { buildRoom, type BuiltRoom } from './claude/roomBuilder';
@@ -31,25 +31,11 @@ import { mulberry32 } from '../rng';
 import { statsStore } from '../stats/sharedStore';
 import type { Puzzle } from '../types';
 
-const ANCHORS: Record<string, { pos: [number, number, number]; box: AABB }> = {
-  desk: { pos: [-3, 0, -3], box: { minX: -3.9, maxX: -2.1, minZ: -3.5, maxZ: -2.5 } },
-  bookshelf: { pos: [3.5, 0, 3.5], box: { minX: 2.7, maxX: 4.3, minZ: 3.0, maxZ: 4.0 } },
-  safe: { pos: [4.55, 1.5, -3], box: { minX: 4.1, maxX: 5, minZ: -3.5, maxZ: -2.5 } },
-  door: { pos: [0, 0, -ROOM_HALF + 0.05], box: { minX: -0.75, maxX: 0.75, minZ: -5, maxZ: -4.85 } },
-};
-
 const SEED_BASE = 1000;
 const THEME = 'detective-study';
 // Module-level client: in dev/CI no proxy runs, so available() resolves false and the room
 // builds from the deterministic generator with canned narrative/hints (fully playable offline).
 const claude = createHttpClient('/claude');
-const FURNITURE_BOXES = Object.values(ANCHORS).map((a) => a.box);
-// Interactables = each station's anchor xz + the door's anchor xz.
-const INTERACTABLES: Interactable[] = Object.entries(ANCHORS).map(([id, a]) => ({
-  id,
-  x: a.pos[0],
-  z: a.pos[2],
-}));
 
 type ActiveModal =
   | { kind: 'overlay'; station: Station; puzzle: Puzzle }
@@ -83,9 +69,11 @@ function TimerBridge({
 function InteractionBridge({
   targetRef,
   onTarget,
+  interactables,
 }: {
   targetRef: React.RefObject<string | null>;
   onTarget: (id: string | null) => void;
+  interactables: Interactable[];
 }) {
   const { camera } = useThree();
   const acc = useRef(0);
@@ -99,7 +87,7 @@ function InteractionBridge({
     const hit = pickTarget(
       { x: camera.position.x, z: camera.position.z },
       { x: fwd.current.x, z: fwd.current.z },
-      INTERACTABLES,
+      interactables,
       2.5,
       0.6,
     );
@@ -115,6 +103,17 @@ function InteractionBridge({
 export function EscapeRoom({ onExit }: { onExit: () => void }) {
   const [seedNonce, setSeedNonce] = useState(0);
   const durationMs = statsStore.getSettings().warmUpSeconds * 1000;
+
+  // Procedural furniture placement: a deterministic, validated layout keyed to the same nonce
+  // that drives the build, so retry produces a fresh (still-navigable) arrangement. The
+  // collision boxes (for the Player) and interactable xz points (for the InteractionBridge)
+  // are derived from the layout's anchors.
+  const layout = useMemo(() => generateLayout(SEED_BASE + seedNonce), [seedNonce]);
+  const furnitureBoxes = useMemo(() => Object.values(layout.anchors).map((a) => a.box), [layout]);
+  const interactables = useMemo<Interactable[]>(
+    () => Object.entries(layout.anchors).map(([id, a]) => ({ id, x: a.pos[0], z: a.pos[2] })),
+    [layout],
+  );
 
   // The room is built asynchronously: buildRoom() asks Claude (if a proxy is reachable),
   // validates + judges the result, and ALWAYS resolves — falling back to the deterministic
@@ -391,23 +390,30 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
   return (
     <div className="relative h-screen w-screen bg-black">
       <KeyboardControls map={KEY_MAP}>
-        <Canvas shadows camera={{ position: [0, 1.6, 3.5], fov: 70 }}>
+        <Canvas shadows camera={{ position: layout.playerStart, fov: 70 }}>
           <Room />
           <Player
-            boxes={FURNITURE_BOXES}
+            boxes={furnitureBoxes}
             active={activeModal === null && status === 'playing'}
             controlsRef={controlsRef}
             onLock={() => {}}
             onUnlock={() => {}}
           />
-          <Desk position={ANCHORS.desk.pos} />
-          <Bookshelf position={ANCHORS.bookshelf.pos} />
+          <Desk position={layout.anchors.desk.pos} rotation={layout.anchors.desk.rotation} />
+          <Bookshelf
+            position={layout.anchors.bookshelf.pos}
+            rotation={layout.anchors.bookshelf.rotation}
+          />
           <SafeAndPainting
-            position={ANCHORS.safe.pos}
-            rotation={[0, -Math.PI / 2, 0]}
+            position={layout.anchors.safe.pos}
+            rotation={layout.anchors.safe.rotation}
             revealed={safeSolved}
           />
-          <ExitDoor position={ANCHORS.door.pos} open={escaped} />
+          <ExitDoor
+            position={layout.anchors.door.pos}
+            rotation={layout.anchors.door.rotation}
+            open={escaped}
+          />
           <TimerBridge
             sessionRef={sessionRef}
             onState={(rem, st) => {
@@ -415,7 +421,11 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
               setStatus((prev) => (prev === 'escaped' ? prev : st));
             }}
           />
-          <InteractionBridge targetRef={targetRef} onTarget={setTargetId} />
+          <InteractionBridge
+            targetRef={targetRef}
+            onTarget={setTargetId}
+            interactables={interactables}
+          />
         </Canvas>
       </KeyboardControls>
 
