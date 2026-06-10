@@ -1,7 +1,7 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { KeyboardControls, Stats } from '@react-three/drei';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PointerLockControls as PointerLockControlsImpl } from 'three-stdlib';
+import type { LookControlsHandle } from './scene/LookControls';
 import * as THREE from 'three';
 
 import { Room } from './scene/Room';
@@ -106,7 +106,7 @@ interface RoomSceneProps {
   active: boolean;
   safeSolved: boolean;
   escaped: boolean;
-  controlsRef: React.RefObject<PointerLockControlsImpl | null>;
+  controlsRef: React.RefObject<LookControlsHandle | null>;
   sessionRef: React.RefObject<ReturnType<typeof createSession> | null>;
   onTimerState: (remainingMs: number, status: SessionStatus) => void;
   targetRef: React.RefObject<string | null>;
@@ -258,7 +258,7 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
     sessionRef.current = session;
   }, [session]);
 
-  const controlsRef = useRef<PointerLockControlsImpl | null>(null);
+  const controlsRef = useRef<LookControlsHandle | null>(null);
   const targetRef = useRef<string | null>(null);
 
   const [remainingMs, setRemainingMs] = useState(durationMs);
