@@ -1,14 +1,10 @@
 import { useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import {
-  PointerLockControls,
-  useKeyboardControls,
-  type KeyboardControlsEntry,
-} from '@react-three/drei';
-import type { PointerLockControls as PointerLockControlsImpl } from 'three-stdlib';
+import { useKeyboardControls, type KeyboardControlsEntry } from '@react-three/drei';
 import * as THREE from 'three';
 import { resolveMove, type AABB } from './physics';
 import { ROOM_HALF } from './Room';
+import { LookControls, type LookControlsHandle } from './LookControls';
 
 export type Controls = 'forward' | 'back' | 'left' | 'right';
 
@@ -73,7 +69,7 @@ interface PlayerProps {
   boxes: AABB[];
   /** When false, WASD movement is frozen (a presenter modal is open). */
   active: boolean;
-  controlsRef: React.RefObject<PointerLockControlsImpl | null>;
+  controlsRef: React.RefObject<LookControlsHandle | null>;
 }
 
 /**
@@ -92,11 +88,11 @@ export function Player({ boxes, active, controlsRef }: PlayerProps) {
   return (
     <>
       <Movement boxes={boxes} active={active} />
-      {/* No onLock/onUnlock: passing fresh callbacks each render makes drei tear down and
-          re-attach its pointer-lock listeners every re-render (which fire on every mouse-look
-          target change), causing the jumpy view. With stable props the controls are set up
-          once and left alone. */}
-      {active && <PointerLockControls ref={controlsRef} />}
+      {/* Custom look controls (not three-stdlib's): events only accumulate (with glitch
+          filtering), and the camera rotates once per frame with light smoothing — fixing
+          both Chromium's pointer-lock spike "teleports" and fast-flick jitter. Mounted only
+          while playing with no modal open, so modal clicks can't re-capture the pointer. */}
+      {active && <LookControls ref={controlsRef} />}
     </>
   );
 }
