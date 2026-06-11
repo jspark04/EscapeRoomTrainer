@@ -38,6 +38,8 @@ export interface Scenario {
   bookKind: BookKind;
   /** Display noun for the bookshelf entry ('Ledger' | 'Page') — lets the UI recall it without hardcoding variant flavor. */
   bookNoun: 'Ledger' | 'Page';
+  /** The book the desk note names (e.g. 'ATLAS') — for digit-free objectives. */
+  keyword: string;
   half1: string; // 2 digits — the bookshelf entry answer
   half2: string; // 2 digits — Mara's badge no., revealed by the desk note
   vaultCode: string; // half1 + half2 — the safe dial target
@@ -230,6 +232,7 @@ export function generateScenario(seed: number): Scenario {
     noteKind,
     bookKind,
     bookNoun,
+    keyword,
     half1,
     half2,
     vaultCode,

@@ -394,7 +394,9 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
     if (safeSolved) return 'You have the exit code. Find the door.';
     if (solvedIds.has('bookshelf'))
       return `Set the vault: the ${scenario.bookNoun} entry, then her badge number — it's in your case notes.`;
-    if (solvedIds.has('desk')) return scenario.beats.desk; // names the keyword + reveals half2
+    if (solvedIds.has('desk'))
+      // Digit-free recall: the beat/toast revealed the badge no. once; it lives in the notes.
+      return `Find the ${scenario.keyword} on the shelf — her badge number is in your case notes.`;
     return scenario.initialObjective;
   }, [escaped, safeSolved, solvedIds, scenario]);
 
