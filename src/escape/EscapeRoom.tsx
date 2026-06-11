@@ -12,6 +12,7 @@ import { Bookshelf } from './scene/furniture/Bookshelf';
 import { SafeAndPainting } from './scene/furniture/SafeAndPainting';
 import { ExitDoor } from './scene/furniture/ExitDoor';
 import { EscapeHUD } from './ui/EscapeHUD';
+import { CaseNotes } from './ui/CaseNotes';
 import { OverlayPresenter } from './presenters/OverlayPresenter';
 import { DialLockPresenter } from './presenters/DialLockPresenter';
 import { DoorKeypadPresenter } from './presenters/DoorKeypadPresenter';
@@ -271,6 +272,9 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
   const [showIntro, setShowIntro] = useState(true);
   // On-solve story beat — a brief toast revealing the value(s) the player just carried forward.
   const [discovery, setDiscovery] = useState<string | null>(null);
+  // Case Notes journal: evidence lines collected as stations are solved, plus its open/closed state.
+  const [notes, setNotes] = useState<string[]>([]);
+  const [notesOpen, setNotesOpen] = useState(false);
 
   // Adaptive hint state for the active puzzle modal. The tier escalates 1->2->3 on repeated
   // presses; `hintText` shows the latest hint (Claude if reachable, else canned).
@@ -328,9 +332,12 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
   }, [activeModal, status, safeSolved, exitCode, puzzleFor, blueprint]);
 
   // Global "E" to engage; or a click while the pointer is locked and aimed at a target.
+  // "N" toggles the Case Notes — but only when no presenter modal is open, so typing an answer
+  // (which may contain the letter n) never flips the journal.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code === 'KeyE') engage();
+      if (e.code === 'KeyN' && activeModal === null) setNotesOpen((o) => !o);
     };
     const onClick = () => {
       // Only treat a click as "interact" when already pointer-locked and aiming at something;
@@ -343,7 +350,7 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
       window.removeEventListener('keydown', onKey);
       document.removeEventListener('click', onClick);
     };
-  }, [engage]);
+  }, [engage, activeModal]);
 
   const handleSolve = useCallback(
     (station: Station, produced: Record<string, string>) => {
@@ -356,6 +363,9 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
       // Surface the story beat for this station — reveals the value(s) just carried forward.
       const beat = scenario.beats[station.id as StationId];
       if (beat) setDiscovery(beat);
+      // Record the evidence line in the Case Notes (the persistent record the objectives recall).
+      const note = scenario.notes[station.id as StationId];
+      if (note) setNotes((prev) => [...prev, note]);
     },
     [scenario],
   );
@@ -376,11 +386,14 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
     [exitCode],
   );
 
-  // Build the live, story-driven objective from the scenario beats + solved set.
+  // Build the live, story-driven objective from the scenario beats + solved set. The objective
+  // bar never re-prints the digit codes — the beats/toast reveal each value once at discovery and
+  // the Case Notes keep the persistent record; objectives only recall WHERE to look.
   const objective = useMemo(() => {
     if (escaped) return 'You made it out.';
-    if (safeSolved) return `Exit code ${scenario.exitCode} — find the door.`;
-    if (solvedIds.has('bookshelf')) return `Set the vault: ${scenario.half1} then ${scenario.half2}.`;
+    if (safeSolved) return 'You have the exit code. Find the door.';
+    if (solvedIds.has('bookshelf'))
+      return `Set the vault: the ${scenario.bookNoun} entry, then her badge number — it's in your case notes.`;
     if (solvedIds.has('desk')) return scenario.beats.desk; // names the keyword + reveals half2
     return scenario.initialObjective;
   }, [escaped, safeSolved, solvedIds, scenario]);
@@ -450,6 +463,8 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
     setActiveModal(null);
     setShowIntro(true);
     setDiscovery(null);
+    setNotes([]);
+    setNotesOpen(false);
     setHintTier(1);
     setHintText(null);
     targetRef.current = null;
@@ -497,6 +512,10 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
         onRetry={onRetry}
         onExit={onExit}
       />
+
+      {/* Case Notes journal — the persistent record of collected evidence. Hidden while a
+          presenter modal is open (to avoid overlapping it); 'N' toggles it. */}
+      {!activeModal && <CaseNotes notes={notes} open={notesOpen} onToggle={() => setNotesOpen((o) => !o)} />}
 
       {/* Intro narrative — shown once at the start, dismissable, never blocks core play. */}
       {showIntro && status === 'playing' && !activeModal && (
@@ -582,7 +601,7 @@ export function EscapeRoom({ onExit }: { onExit: () => void }) {
       </button>
       {!activeModal && status === 'playing' && (
         <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded bg-black/40 px-3 py-1 text-xs text-amber-200/70">
-          WASD to move · mouse to look · click to capture · [E] or click to interact
+          WASD to move · mouse to look · click to capture · [E] or click to interact · [N] case notes
         </div>
       )}
     </div>
